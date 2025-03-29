@@ -3,7 +3,7 @@
  */
 const path = require('path');
 const fs = require('fs-extra');
-const { extractBillData } = require('../services/pdfService');
+const { extractBillData, extractBillDataWithAllModels } = require('../services/pdfService');
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -50,6 +50,45 @@ exports.processPdf = async (req, res, next) => {
     return res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to process PDF'
+    });
+  }
+};
+
+/**
+ * Process PDF file with all available models and compare results
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.processPdfWithAllModels = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'No PDF file provided'
+      });
+    }
+
+    // Extract bill data from the PDF using all models
+    const results = await extractBillDataWithAllModels(req.file);
+
+    // Add filename to each result's data object if available
+    results.forEach(result => {
+      if (result.data && typeof result.data === 'object') {
+        result.data.Filename = req.file.originalname;
+      }
+    });
+
+    // Return the results array with data from all models
+    return res.status(200).json({
+      status: 'success',
+      filename: req.file.originalname,
+      results
+    });
+  } catch (error) {
+    console.error('PDF multi-model processing error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: error.message || 'Failed to process PDF with multiple models'
     });
   }
 };
