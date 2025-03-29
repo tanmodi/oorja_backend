@@ -11,6 +11,52 @@ const openai = new OpenAI({
 });
 
 /**
+ * Calculate price based on token usage and model
+ * @param {string} model - The GPT model being used
+ * @param {Object} usage - Token usage information
+ * @returns {Object} Price calculations
+ */
+const calculatePrice = (model, usage) => {
+  const prices = {
+    'gpt-4.5-preview': {
+      input: 75.0,
+      cachedInput: 37.5,
+      output: 150.0
+    },
+    'gpt-4o': {
+      input: 2.5,
+      cachedInput: 1.25,
+      output: 10.0
+    },
+    'gpt-4o-mini': {
+      input: 0.15,
+      cachedInput: 0.075,
+      output: 0.60
+    }
+  };
+
+  const modelPrices = prices[model] || prices['gpt-4o']; // Default to gpt-4o if model not found
+
+  // Calculate prices per million tokens
+  const inputPrice = (usage.prompt_tokens / 1000000) * modelPrices.input;
+  const outputPrice = (usage.completion_tokens / 1000000) * modelPrices.output;
+
+  return {
+    model,
+    rates: {
+      inputRate: `$${modelPrices.input.toFixed(2)} per million tokens`,
+      cachedInputRate: `$${modelPrices.cachedInput.toFixed(2)} per million tokens`,
+      outputRate: `$${modelPrices.output.toFixed(2)} per million tokens`
+    },
+    costs: {
+      inputCost: `$${inputPrice.toFixed(6)}`,
+      outputCost: `$${outputPrice.toFixed(6)}`,
+      totalCost: `$${(inputPrice + outputPrice).toFixed(6)}`
+    }
+  };
+};
+
+/**
  * Extract bill data from PDF using OpenAI
  * @param {Object} fileData - File data from multer
  * @returns {Promise<Object>} Extracted data and token usage
@@ -25,9 +71,11 @@ exports.extractBillData = async (fileData) => {
     const pdfData = await pdfParse(pdfBuffer);
     const extractedText = pdfData.text;
 
+    const model = "gpt-4o"; // You can change this to "gpt-4.5-preview" or "gpt-4o-mini"
+
     // Create a chat completion with the extracted text
     const response = await openai.chat.completions.create({
-      model: "gpt-4.5-preview",
+      model: model,
       messages: [
         {
           role: "system",
@@ -38,9 +86,9 @@ exports.extractBillData = async (fileData) => {
           content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
         }
       ],
-      max_tokens: 4000,
       temperature: 0.1 // Lower temperature for more consistent JSON formatting
     });
+
 
     console.log("OpenAI response:", response);
 
@@ -78,14 +126,18 @@ exports.extractBillData = async (fileData) => {
     // Clean up the temporary file
     await fs.remove(fileData.path);
 
-    // Return both the extracted data and token usage
+    // Calculate pricing
+    const pricing = calculatePrice(model, response.usage);
+
+    // Return data, usage, and pricing information
     return {
       data: extractedData,
       usage: {
         prompt_tokens: response.usage.prompt_tokens,
         completion_tokens: response.usage.completion_tokens,
         total_tokens: response.usage.total_tokens
-      }
+      },
+      pricing
     };
   } catch (error) {
     console.error("Error extracting bill data:", error);

@@ -31,11 +31,12 @@ exports.processPdf = async (req, res, next) => {
     if (result.data && typeof result.data === 'object') {
       result.data.Filename = req.file.originalname;
 
-      // Return the extracted data with token usage
+      // Return the extracted data with token usage and pricing information
       return res.status(200).json({
         status: 'success',
         data: result.data,
-        usage: result.usage
+        usage: result.usage,
+        pricing: result.pricing
       });
     } else {
       // If we didn't get valid data, return an error
