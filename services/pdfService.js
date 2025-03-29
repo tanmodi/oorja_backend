@@ -11,7 +11,7 @@ const openai = new OpenAI({
 });
 
 // List of available models
-const AVAILABLE_MODELS = ['gpt-4o', 'gpt-4.5-preview', 'gpt-4o-mini'];
+const AVAILABLE_MODELS = ['gpt-4.5-preview', 'gpt-4o',  'gpt-4o-mini'];
 
 /**
  * Calculate price based on token usage and model
