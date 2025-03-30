@@ -12,6 +12,8 @@ const openai = new OpenAI({
 
 // List of available models
 const AVAILABLE_MODELS = ['gpt-4.5-preview', 'gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'o1-pro'];
+// const AVAILABLE_MODELS = ['gpt-4o'];
+
 
 /**
  * Calculate price based on token usage and model
@@ -20,6 +22,28 @@ const AVAILABLE_MODELS = ['gpt-4.5-preview', 'gpt-4o', 'gpt-4o-mini', 'o3-mini',
  * @returns {Object} Price calculations
  */
 const calculatePrice = (model, usage) => {
+  if (!usage || typeof usage !== 'object') {
+    console.error('Invalid usage object:', usage);
+    return {
+      model,
+      rates: {
+        inputRate: 'N/A',
+        cachedInputRate: 'N/A',
+        outputRate: 'N/A'
+      },
+      costs: {
+        inputCost: 'N/A',
+        outputCost: 'N/A',
+        totalCost: 'N/A'
+      }
+    };
+  }
+
+  // Extract token counts from usage object, handling both API response formats
+  const promptTokens = usage.prompt_tokens || usage.input_tokens || 0;
+  const completionTokens = usage.completion_tokens || usage.output_tokens || 0;
+  const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+
   const prices = {
     'gpt-4.5-preview': {
       input: 75.0,
@@ -56,8 +80,8 @@ const calculatePrice = (model, usage) => {
   const modelPrices = prices[model] || prices['gpt-4o']; // Default to gpt-4o if model not found
 
   // Calculate prices per million tokens
-  const inputPrice = (usage.prompt_tokens / 1000000) * modelPrices.input;
-  const outputPrice = (usage.completion_tokens / 1000000) * modelPrices.output;
+  const inputPrice = (promptTokens / 1000000) * modelPrices.input;
+  const outputPrice = (completionTokens / 1000000) * modelPrices.output;
 
   return {
     model,
@@ -160,9 +184,12 @@ exports.extractBillData = async (fileData, model = 'o3-mini') => {
     return {
       data: extractedData,
       usage: {
-        prompt_tokens: usage.prompt_tokens,
-        completion_tokens: usage.completion_tokens,
-        total_tokens: usage.total_tokens
+        prompt_tokens: usage.prompt_tokens || usage.input_tokens || 0,
+        completion_tokens: usage.completion_tokens || usage.output_tokens || 0,
+        total_tokens: usage.total_tokens || (
+          (usage.prompt_tokens || usage.input_tokens || 0) + 
+          (usage.completion_tokens || usage.output_tokens || 0)
+        )
       },
       pricing
     };
@@ -271,9 +298,12 @@ exports.extractBillDataWithAllModels = async (fileData) => {
           model,
           data: extractedData,
           usage: {
-            prompt_tokens: usage.prompt_tokens,
-            completion_tokens: usage.completion_tokens,
-            total_tokens: usage.total_tokens
+            prompt_tokens: usage.prompt_tokens || usage.input_tokens || 0,
+            completion_tokens: usage.completion_tokens || usage.output_tokens || 0,
+            total_tokens: usage.total_tokens || (
+              (usage.prompt_tokens || usage.input_tokens || 0) + 
+              (usage.completion_tokens || usage.output_tokens || 0)
+            )
           },
           pricing,
           timing: {
