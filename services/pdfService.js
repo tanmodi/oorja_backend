@@ -11,7 +11,7 @@ const openai = new OpenAI({
 });
 
 // List of available models
-const AVAILABLE_MODELS = ['gpt-4.5-preview', 'gpt-4o',  'gpt-4o-mini'];
+const AVAILABLE_MODELS = ['gpt-4.5-preview', 'gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'o1-pro'];
 
 /**
  * Calculate price based on token usage and model
@@ -35,6 +35,21 @@ const calculatePrice = (model, usage) => {
       input: 0.15,
       cachedInput: 0.075,
       output: 0.60
+    },
+    'o3-mini': {
+      input: 1.10,
+      cachedInput: 0.55,
+      output: 4.40
+    },
+    'o1': {
+      input: 15.00,
+      cachedInput: 7.50,
+      output: 60.00
+    },
+    'o1-pro': {
+      input: 150.00,
+      cachedInput: 150.00, // For o1-pro, there's no separate cached input price mentioned
+      output: 600.00
     }
   };
 
@@ -66,7 +81,7 @@ const calculatePrice = (model, usage) => {
  * @returns {Promise<Object>} Extracted data and token usage
  * @throws {Error} If data extraction fails
  */
-exports.extractBillData = async (fileData, model = 'gpt-4.5-preview') => {
+exports.extractBillData = async (fileData, model = 'o3-mini') => {
   try {
     // Make a copy of the file to use for extraction
     const tempFilePath = fileData.path;
@@ -78,8 +93,8 @@ exports.extractBillData = async (fileData, model = 'gpt-4.5-preview') => {
     const pdfData = await pdfParse(pdfBuffer);
     const extractedText = pdfData.text;
 
-    // Create a chat completion with the extracted text
-    const response = await openai.chat.completions.create({
+    // Set request parameters
+    const requestParams = {
       model: model,
       messages: [
         {
@@ -90,9 +105,17 @@ exports.extractBillData = async (fileData, model = 'gpt-4.5-preview') => {
           role: "user",
           content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
         }
-      ],
-      temperature: 0.1 // Lower temperature for more consistent JSON formatting
-    });
+      ]
+      // Removed max_tokens parameter to allow unlimited token generation
+    };
+
+    // Add temperature parameter only for GPT models, not for O series models
+    if (model.startsWith('gpt-')) {
+      requestParams.temperature = 0.1; // Lower temperature for more consistent JSON formatting
+    }
+
+    // Create a chat completion with the extracted text
+    const response = await openai.chat.completions.create(requestParams);
 
     // Extract the response content
     const content = response.choices[0].message.content;
@@ -166,8 +189,8 @@ exports.extractBillDataWithAllModels = async (fileData) => {
       try {
         console.log(`Processing with model: ${model}`);
         
-        // Create a chat completion with the extracted text
-        const response = await openai.chat.completions.create({
+        // Set up request parameters
+        const requestParams = {
           model: model,
           messages: [
             {
@@ -178,9 +201,17 @@ exports.extractBillDataWithAllModels = async (fileData) => {
               role: "user",
               content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
             }
-          ],
-          temperature: 0.1
-        });
+          ]
+          // Removed max_tokens parameter to allow unlimited token generation
+        };
+        
+        // Add temperature parameter only for GPT models
+        if (model.startsWith('gpt-')) {
+          requestParams.temperature = 0.1; // Lower temperature for more consistent JSON formatting
+        }
+        
+        // Create a chat completion with the extracted text
+        const response = await openai.chat.completions.create(requestParams);
         
         // Extract and parse the response content
         const content = response.choices[0].message.content;
