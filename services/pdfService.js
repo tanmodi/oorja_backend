@@ -77,7 +77,7 @@ const calculatePrice = (model, usage) => {
 /**
  * Extract bill data from PDF using OpenAI
  * @param {Object} fileData - File data from multer
- * @param {string} [model='gpt-4o'] - The model to use for extraction
+ * @param {string} [model='o3-mini'] - The model to use for extraction
  * @returns {Promise<Object>} Extracted data and token usage
  * @throws {Error} If data extraction fails
  */
@@ -93,32 +93,34 @@ exports.extractBillData = async (fileData, model = 'o3-mini') => {
     const pdfData = await pdfParse(pdfBuffer);
     const extractedText = pdfData.text;
 
-    // Set request parameters
-    const requestParams = {
-      model: model,
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant that extracts information from electricity bills. You must return your response as a valid JSON object without any markdown formatting or code blocks."
-        },
-        {
-          role: "user",
-          content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
-        }
-      ]
-      // Removed max_tokens parameter to allow unlimited token generation
-    };
+    let response;
+    let content;
+    let usage;
 
-    // Add temperature parameter only for GPT models, not for O series models
-    if (model.startsWith('gpt-')) {
-      requestParams.temperature = 0.1; // Lower temperature for more consistent JSON formatting
+    try {
+      // Use responses.create API for all models
+      response = await openai.responses.create({
+        model: model,
+        input: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that extracts information from electricity bills. You must return your response as a valid JSON object without any markdown formatting or code blocks."
+          },
+          {
+            role: "user",
+            content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
+          }
+        ],
+        temperature: model.startsWith('gpt-') ? 0.1 : undefined
+      });
+      
+      // Extract content from response
+      content = response.output_text;
+      usage = response.usage;
+    } catch (error) {
+      console.error(`Error with responses API for model ${model}:`, error);
+      throw new Error(`Failed to process with model ${model}: ${error.message}`);
     }
-
-    // Create a chat completion with the extracted text
-    const response = await openai.chat.completions.create(requestParams);
-
-    // Extract the response content
-    const content = response.choices[0].message.content;
 
     // Try to parse the JSON from the response
     let extractedData;
@@ -148,16 +150,19 @@ exports.extractBillData = async (fileData, model = 'o3-mini') => {
       throw new Error('Invalid data format received from OpenAI');
     }
 
+    // Clean up the temporary file
+    await fs.remove(fileData.path);
+
     // Calculate pricing
-    const pricing = calculatePrice(model, response.usage);
+    const pricing = calculatePrice(model, usage);
 
     // Return data, usage, and pricing information
     return {
       data: extractedData,
       usage: {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens
       },
       pricing
     };
@@ -189,34 +194,54 @@ exports.extractBillDataWithAllModels = async (fileData) => {
       try {
         console.log(`Processing with model: ${model}`);
         
-        // Set up request parameters
-        const requestParams = {
-          model: model,
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful assistant that extracts information from electricity bills. You must return your response as a valid JSON object without any markdown formatting or code blocks."
-            },
-            {
-              role: "user",
-              content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
-            }
-          ]
-          // Removed max_tokens parameter to allow unlimited token generation
-        };
+        // Record start time
+        const startTime = new Date();
+        const startTimeFormatted = startTime.toISOString();
         
-        // Add temperature parameter only for GPT models
-        if (model.startsWith('gpt-')) {
-          requestParams.temperature = 0.1; // Lower temperature for more consistent JSON formatting
+        let response;
+        let content;
+        let usage;
+
+        try {
+          // Use responses.create API for all models
+          response = await openai.responses.create({
+            model: model,
+            input: [
+              {
+                role: "system",
+                content: "You are a helpful assistant that extracts information from electricity bills. You must return your response as a valid JSON object without any markdown formatting or code blocks."
+              },
+              {
+                role: "user",
+                content: `Extract the following fields from this electricity bill text and return ONLY a JSON object (no markdown, no \`\`\` blocks):\n\nRequired fields: Address, Arrears, BaCode, BillDate, BillDueDate, BilledUnit, BillFetchTimeStamp, BillMonth, BillNo, CanSerNo, CGST, CircleCode, CmrDt, CmrKwh, ConCat, ConnLd, ConnType, ConsumerName, ConsUnits, CurAmtPay, DiscCode, EleDuty, EngyChg, EntityCode, EntityType, Filename, FinalClosingReading, FinalConsUnits, FinalOpeningReading, FulCstAdj, FxdChg, GrosAmt, LastAmountpaid, LastAmountPaidDate, LtPaySurChg, MeterStatus, MetRent, MetrNo, MulFac, OmrDt, OmrKwh.\n\nBill text:\n${extractedText}`
+              }
+            ],
+            temperature: model.startsWith('gpt-') ? 0.1 : undefined
+          });
+
+          console.log(`Response received for model ${model}`);
+          console.log(`Response: ${JSON.stringify(response)}`);
+          console.log(response);
+
+          
+          // Extract content from response
+          content = response.output_text;
+          usage = response.usage;
+        } catch (error) {
+          console.error(`Error with responses API for model ${model}:`, error);
+          throw new Error(`Failed to process with model ${model}: ${error.message}`);
         }
+
+        // Record end time
+        const endTime = new Date();
+        const endTimeFormatted = endTime.toISOString();
         
-        // Create a chat completion with the extracted text
-        const response = await openai.chat.completions.create(requestParams);
-        
-        // Extract and parse the response content
-        const content = response.choices[0].message.content;
+        // Calculate duration in milliseconds and seconds
+        const durationMs = endTime - startTime;
+        const durationSec = (durationMs / 1000).toFixed(2);
+
+        // Try to parse the JSON from the response
         let extractedData;
-        
         try {
           // First try direct JSON parsing
           extractedData = JSON.parse(content);
@@ -239,19 +264,25 @@ exports.extractBillDataWithAllModels = async (fileData) => {
         }
         
         // Calculate pricing
-        const pricing = calculatePrice(model, response.usage);
+        const pricing = calculatePrice(model, usage);
         
-        // Add result to array
+        // Add result to array with timing information
         results.push({
           model,
           data: extractedData,
           usage: {
-            prompt_tokens: response.usage.prompt_tokens,
-            completion_tokens: response.usage.completion_tokens,
-            total_tokens: response.usage.total_tokens
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens
           },
           pricing,
-          processingTime: response.usage.total_ms || 0
+          timing: {
+            startTime: startTimeFormatted,
+            endTime: endTimeFormatted,
+            durationMs,
+            durationSec: `${durationSec} seconds`
+          },
+          processingTime: usage.total_ms || 0
         });
         
       } catch (modelError) {
@@ -261,7 +292,13 @@ exports.extractBillDataWithAllModels = async (fileData) => {
           error: modelError.message,
           data: null,
           usage: null,
-          pricing: null
+          pricing: null,
+          timing: {
+            startTime: new Date().toISOString(),
+            endTime: new Date().toISOString(),
+            durationMs: 0,
+            durationSec: "0.00 seconds"
+          }
         });
       }
     }
